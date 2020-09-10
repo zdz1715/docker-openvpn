@@ -112,6 +112,8 @@ status ${OPENVPN}/openvpn-status.log
 verb 3
 # 当服务器重新启动时，通知客户端，以便它可以自动重新连接。只支持udp协议
 explicit-exit-notify 1
+# 注销证书
+crl-verify $EASYRSA_PKI/crl.pem
 EOF
 
 if [ -n "$OVPN_PAM_MYSQL_PATH" ];then
