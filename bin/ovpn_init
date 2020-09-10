@@ -1,0 +1,23 @@
+#!/bin/bash
+set -e
+
+if [ -z "$1" ]; then
+  echo "[ERROR] 请输入服务端名称"
+  exit 1
+fi
+
+# 初始化
+easyrsa init-pki
+
+# 创建ca证书
+easyrsa build-ca nopass
+
+# 创建 Diffie-Hellman
+easyrsa gen-dh
+
+# tls-auth
+openvpn --genkey --secret "$EASYRSA_PKI"/ta.key
+
+# 创建服务端证书
+easyrsa build-server-full "$1" nopass
+
