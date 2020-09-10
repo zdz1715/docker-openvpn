@@ -1,0 +1,79 @@
+#!/bin/bash
+set -e
+
+source '/usr/local/bin/func.sh'
+
+
+usage() {
+    echo "usage: $0 CLIENT_NAME SERVER_ADDR"
+}
+
+CLIENT_NAME="$1"
+SERVER_ADDR="$2"
+
+if [ -z "$CLIENT_NAME" ] || [ -z "$SERVER_ADDR" ]; then
+  echo "Invalid option" >&2
+  usage
+  exit 1
+fi
+
+# shellcheck source=src/util.sh
+[ -r "$OVPN_ENV" ] && . "$OVPN_ENV"
+
+if [ -f "${EASYRSA_PKI}/reqs/${CLIENT_NAME}.req" ];then
+  echo "[ERROR] 账户已存在，请先执行撤销操作:"
+  echo "ovpn_revoke_client ${CLIENT_NAME}"
+  exit 1
+fi
+
+
+if [ -z "$OVPN_PAM_MYSQL_PATH" ]; then
+  easyrsa build-client-full "$CLIENT_NAME" nopass
+fi
+
+echo "---------------------------  client.conf -------------------------------"
+
+echo "
+client
+dev tun
+proto udp
+remote $SERVER_ADDR ${OVPN_PORT}
+resolv-retry infinite
+nobind
+persist-key
+persist-tun
+remote-cert-tls server
+cipher AES-256-CBC
+comp-lzo
+reneg-sec 0
+verb 3
+<ca>
+$(cat ${EASYRSA_PKI}/ca.crt)
+</ca>
+<tls-auth>
+$(cat ${EASYRSA_PKI}/ta.key)
+</tls-auth>
+key-direction 1
+"
+if [ -z "$OVPN_PAM_MYSQL_PATH" ]; then
+  echo "
+<cert>
+$(openssl x509 -in ${EASYRSA_PKI}/issued/${CLIENT_NAME}.crt)
+</cert>
+<key>
+$(cat ${EASYRSA_PKI}/private/${CLIENT_NAME}.key)
+</key>
+"
+else
+  echo "
+# pass.txt 格式：
+# 账号
+# 密码
+auth-user-pass pass.txt
+"
+fi
+
+echo "
+route-nopull
+route $(get_route $OVPN_SERVER) vpn_gateway
+"

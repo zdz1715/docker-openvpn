@@ -15,6 +15,7 @@ ENV OPENVPN /etc/openvpn
 ENV EASYRSA /usr/share/easy-rsa
 ENV EASYRSA_PKI $OPENVPN/pki
 ENV EASYRSA_VARS_FILE $OPENVPN/vars
+ENV OVPN_ENV $OPENVPN/.env
 
 COPY entrypoint.sh /entrypoint.sh
 
