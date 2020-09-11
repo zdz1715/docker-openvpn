@@ -1,0 +1,20 @@
+{
+  "name": "docker-openvpn",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "docker-build": "docker build -t zdzserver/docker-openvpn .",
+    "docker-push": "docker push zdzserver/docker-openvpn"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zdz1715/docker-openvpn.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/zdz1715/docker-openvpn/issues"
+  },
+  "homepage": "https://github.com/zdz1715/docker-openvpn#readme"
+}

@@ -1,23 +1,44 @@
 #!/bin/bash
 set -eu
 
-source '/usr/local/bin/func.sh'
+# 加载配置
+. /usr/local/bin/func.sh
+
 
 usage() {
-    echo "usage: $0 [OPTIONS]"
-    echo " -p port"
-    echo " -m PLUGIN_NAME 验证插件，可选项：pam_mysql"
-    echo " -n SERVER_CERT_NAME 服务证书名称"
-    echo " -s SERVER_SUBNET 内网地址，默认：10.8.0.0/24"
+    echo
+    echo "Usage: $0 [OPTIONS] COMMAND
+
+    Options:
+      -h, --help                    帮助
+      -n, --name string             证书名称
+      -p, --port int                指定端口，默认：1194
+      -P, --plugin string           插件，可选：pam_mysql
+      -s, --server string           内网地址范围，默认：10.8.0.0/24
+      --push string                 多个请用’,‘分割，格式：route 172.16.100.0 0.0.0.0 net_gateway,dhcp-option DNS 8.8.8.8
+
+    Commands:
+      init                          初始化，生成证书和服务端配置文件
+      build-server-conf             重新生成服务端配置文件
+      build-client-conf             生成客户端配置
+      revoke-client                 撤销客户端
+      status                        客户端连接状态
+      client-list                   客户列表
+    "
 }
 
 OVPN_PORT=1194
 OVPN_SERVER=10.8.0.0/24
 OVPN_PLUGIN=''
-OVPN_SERVER_CERT_NAME='ovpn-server'
-OVPN_SERVER_CONF="${OPENVPN:-}/server/server.conf"
-OVPN_CLIENT_CONF="${OPENVPN:-}/client"
+OVPN_SERVER_CERT_NAME='openvpn-server'
+OVPN_SERVER_DIR="${OPENVPN:-}/server"
+OVPN_CLIENT_DIR="${OPENVPN:-}/client"
+OVPN_SERVER_CONF="${OVPN_SERVER_DIR}/openvpn.conf"
+OVPN_STATUS_FILE="${OPENVPN:-}/openvpn-status.log"
+
+OVPN_BUILD_CA=0
 OVPN_PAM_MYSQL_PATH=''
+
 while getopts ":n:s:p:" opt; do
     case $opt in
         m)
@@ -96,7 +117,7 @@ keepalive 10 60
 tls-auth ${EASYRSA_PKI}/ta.key 0
 cipher AES-256-CBC
 # 压缩
-comp-lzo
+compress lz4
 # 最大连接客户端
 max-clients 1000
 # 使用nobody用户运行，更安全
@@ -107,7 +128,7 @@ reneg-sec 0
 persist-key
 persist-tun
 # 状态日志
-status ${OPENVPN}/openvpn-status.log
+status ${OVPN_STATUS_FILE}
 # 日志级别 0-9,等级越高日志内容越详细
 verb 3
 # 当服务器重新启动时，通知客户端，以便它可以自动重新连接。只支持udp协议

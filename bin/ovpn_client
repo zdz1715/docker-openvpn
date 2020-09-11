@@ -1,8 +1,10 @@
 #!/bin/bash
 set -e
 
-source '/usr/local/bin/func.sh'
-
+# 加载配置
+. /usr/local/bin/func.sh
+# shellcheck source=src/util.sh
+[ -r "$OVPN_ENV" ] && . "$OVPN_ENV"
 
 usage() {
     echo "usage: $0 CLIENT_NAME SERVER_ADDR"
@@ -17,8 +19,8 @@ if [ -z "$CLIENT_NAME" ] || [ -z "$SERVER_ADDR" ]; then
   exit 1
 fi
 
-# shellcheck source=src/util.sh
-[ -r "$OVPN_ENV" ] && . "$OVPN_ENV"
+
+
 
 if [ -f "${EASYRSA_PKI}/reqs/${CLIENT_NAME}.req" ];then
   echo "[ERROR] 账户已存在，请先执行撤销操作:"
