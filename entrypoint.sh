@@ -1,24 +1,19 @@
 #!/bin/bash
 set -e
 
-
-# shellcheck source=src/util.sh
-[ -r "$OVPN_ENV" ] && . "$OVPN_ENV"
+# 加载函数
+. /usr/local/bin/func.sh
 
 # 启动openvpn
-if [ ! -z "$*" ];then
-  exec "$@"
+if [[ -z $* ]];then
+  # shellcheck source=src/util.sh
+  [[ -r "$OVPN_ENV" ]] && . "$OVPN_ENV"
+  step_exec vpn-cli check
+  step_exec openvpn --status-version 2 --suppress-timestamps --config "$VPN_CONF_SERVER_FILE"
 fi
 
-
-if [ ! -r "$OVPN_SERVER_CONF" ]; then
-    echo "[ERROR]请先执行命令:ovpn_init" >&2
-    exit 1
-fi
+step_exec "$@"
 
 
-echo "openvpn --status-version 2 --suppress-timestamps --config ${OVPN_SERVER_CONF}"
-echo ""
-openvpn --status-version 2 --suppress-timestamps --config "$OVPN_SERVER_CONF"
 
 

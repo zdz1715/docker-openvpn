@@ -26,3 +26,25 @@ cidr2mask()
 get_route() {
     echo ${1%/*} $(cidr2mask $1)
 }
+
+ERROR() {
+  echo -e '\u001b[91m'\[`date +%H:%M:%S`\] \[ERROR\] $@
+}
+
+SUCCESS() {
+  echo -e '\u001b[92m'\[`date +%H:%M:%S`\] \[SUCCESS\] $@
+}
+
+WARNING() {
+  echo -e '\u001b[33m'\[`date +%H:%M:%S`\] \[WARNING\] $@
+}
+
+INFO() {
+  echo -e '\u001b[1m'\[`date +%H:%M:%S`\] \[INFO\] $@
+}
+
+step_exec() {
+    echo -e "\033[1;36m[`date +%H:%M:%S`] [执行命令] $*"
+    "$@" 2>&1
+    return "${PIPESTATUS[0]}"
+}

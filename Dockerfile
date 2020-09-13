@@ -22,9 +22,11 @@ COPY entrypoint.sh /entrypoint.sh
 VOLUME ["/etc/openvpn"]
 
 
-ADD ./bin /usr/local/bin
+#ADD ./bin /usr/local/bin
+#
+#RUN chmod +x /entrypoint.sh; \
+#    chmod a+x /usr/local/bin/*;
 
-RUN chmod +x /entrypoint.sh; \
-    chmod a+x /usr/local/bin/*;
+RUN chmod +x /entrypoint.sh;
 
 ENTRYPOINT ["/entrypoint.sh"]
