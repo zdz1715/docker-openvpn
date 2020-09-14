@@ -9,16 +9,16 @@ set -e
 TEMP_CERT_NAME=''
 TEMP_CONF_REMOTE=''
 TEMP_CONF_ROUTE=''
+TEMP_CONF_PUSH=''
 
 
 SPLIT_STR=";"
 
-VPN_CERT_SERVER_NAME=''
+VPN_F_CERT_SERVER_NAME=''
+VPN_F_CONF_PORT=''
+VPN_F_CONF_PLUGIN=''
+VPN_F_CONF_SERVER=''
 
-VPN_CONF_PORT=''
-VPN_CONF_PLUGIN=''
-VPN_CONF_SERVER=''
-VPN_CONF_PUSH=''
 
 VPN_DIR_SERVER="${OPENVPN}/server"
 VPN_DIR_CERT="${EASYRSA_PKI}/issued"
@@ -43,14 +43,14 @@ vpn_check() {
   [[ ! -r "$VPN_FILE_SERVER" ]] && ERROR "文件不存在：$VPN_FILE_SERVER，请执行：\"vpn-cli build-server-conf\"" >&2 && exit 1
 
   if [[ "$1" = "client-conf" ]]; then
-    if [[ -z "$TEMP_CERT_NAME" ]] || [[ -z "$TEMP_CONF_REMOTE" ]]; then
+    if [[ -z "$VPN_F_CERT_SERVER_NAME" ]] || [[ -z "$TEMP_CONF_REMOTE" ]]; then
       ERROR "\"vpn-cli $COMMAND\" requires at least 2 argument: -n|--name, -r|--remote"
       exit 1
     fi
   fi
 
   if [[ "$1" = "client" ]]; then
-    if [[ -z "$TEMP_CERT_NAME" ]]; then
+    if [[ -z "$VPN_F_CERT_SERVER_NAME" ]]; then
       ERROR "\"vpn-cli $COMMAND\" requires at least 1 argument: -n|--name"
       exit 1
     fi
@@ -109,21 +109,21 @@ vpn_check_req() {
 }
 
 vpn_client_conf() {
-  step "生成客户端端配置文件：$TEMP_CERT_NAME"
-   if ! vpn_check_req "$TEMP_CERT_NAME"; then
-    step_exec easyrsa build-client-full "$TEMP_CERT_NAME" nopass
+  step "生成客户端端配置文件：$VPN_F_CERT_SERVER_NAME"
+   if ! vpn_check_req "$VPN_F_CERT_SERVER_NAME"; then
+    step_exec easyrsa build-client-full "$VPN_F_CERT_SERVER_NAME" nopass
   else
-    WARNING "此账户已存在，若想重新生成证书请先执行：\"vpn-cli revoke -n $TEMP_CERT_NAME\""
+    WARNING "此账户已存在，若想重新生成证书请先执行：\"vpn-cli revoke -n $VPN_F_CERT_SERVER_NAME\""
   fi
   # shellcheck source=src/util.sh
   [[ -r "$OVPN_ENV" ]] && . "$OVPN_ENV"
 
 
-  echo "############################## 客户端（$TEMP_CERT_NAME）配置 #################################"
+  echo "############################## 客户端（$VPN_F_CERT_SERVER_NAME）配置 #################################"
   echo "client
 dev tun
 proto udp
-remote ${TEMP_CONF_REMOTE} ${VPN_CONF_PORT}
+remote ${TEMP_CONF_REMOTE} ${VPN_F_CONF_PORT}
 resolv-retry infinite
 nobind
 persist-key
@@ -147,7 +147,7 @@ $(openssl x509 -in ${VPN_DIR_CERT}/${TEMP_CERT_NAME}.crt)
 $(cat ${VPN_DIR_KEY}/${TEMP_CERT_NAME}.key)
 </key>
 route-nopull
-route $(get_route ${VPN_CONF_SERVER}) vpn_gateway"
+route $(get_route ${VPN_F_CONF_SERVER}) vpn_gateway"
 
   if [[ -n "$TEMP_CONF_ROUTE" ]]; then
     if [[ "$TEMP_CONF_ROUTE" =~ $SPLIT_STR ]]; then
@@ -170,11 +170,9 @@ route $(get_route ${VPN_CONF_SERVER}) vpn_gateway"
 
 server_conf_init() {
 
-  [[ -z "$TEMP_CERT_NAME" ]] && [[ -z "$VPN_CERT_SERVER_NAME" ]] && TEMP_CERT_NAME='vpn_server'
-  [[ -z "$VPN_CONF_PORT" ]] && VPN_CONF_PORT=1194
-  [[ -z "$VPN_CONF_SERVER" ]] && VPN_CONF_SERVER='10.8.0.0/24'
-
-  [[ -n "$TEMP_CERT_NAME" ]] && VPN_CERT_SERVER_NAME=$TEMP_CERT_NAME
+  [[ -z "$VPN_F_CERT_SERVER_NAME" ]] && VPN_F_CERT_SERVER_NAME='vpn_server'
+  [[ -z "$VPN_F_CONF_PORT" ]] && VPN_F_CONF_PORT=1194
+  [[ -z "$VPN_F_CONF_SERVER" ]] && VPN_F_CONF_SERVER='10.8.0.0/24'
 
   return 0
 }
@@ -183,20 +181,20 @@ vpn_server_conf() {
   # shellcheck source=src/util.sh
   [[ -r "$OVPN_ENV" ]] && . "$OVPN_ENV"
 
-  echo "$VPN_CERT_SERVER_NAME"
-  echo $VPN_CONF_PORT
-  echo $VPN_CONF_SERVER
+  echo "$VPN_F_CERT_SERVER_NAME"
+  echo $VPN_F_CONF_PORT
+  echo $VPN_F_CONF_SERVER
 
   server_conf_init
 
-  echo "$VPN_CERT_SERVER_NAME"
-  echo $VPN_CONF_PORT
-  echo $VPN_CONF_SERVER
+  echo "$VPN_F_CERT_SERVER_NAME"
+  echo $VPN_F_CONF_PORT
+  echo $VPN_F_CONF_SERVER
 
-  step "生成服务端配置文件：$VPN_CERT_SERVER_NAME"
+  step "生成服务端配置文件：$VPN_F_CERT_SERVER_NAME"
 
-  if ! vpn_check_req "$VPN_CERT_SERVER_NAME"; then
-    step_exec easyrsa build-server-full "$VPN_CERT_SERVER_NAME" nopass
+  if ! vpn_check_req "$VPN_F_CERT_SERVER_NAME"; then
+    step_exec easyrsa build-server-full "$VPN_F_CERT_SERVER_NAME" nopass
   fi
 
 
@@ -206,14 +204,14 @@ vpn_server_conf() {
   fi
 
 cat > "$VPN_FILE_SERVER" <<EOF
-port ${VPN_CONF_PORT}
+port ${VPN_F_CONF_PORT}
 proto udp
 dev tun
 ca ${VPN_FILE_CA}
-cert ${VPN_DIR_CERT}/${VPN_CERT_SERVER_NAME}.crt
-key ${VPN_DIR_KEY}/${VPN_CERT_SERVER_NAME}.key
+cert ${VPN_DIR_CERT}/${VPN_F_CERT_SERVER_NAME}.crt
+key ${VPN_DIR_KEY}/${VPN_F_CERT_SERVER_NAME}.key
 dh ${EASYRSA_PKI}/dh.pem
-server $(get_route $VPN_CONF_SERVER)
+server $(get_route $VPN_F_CONF_SERVER)
 ifconfig-pool-persist ${OPENVPN}/ipp.txt
 # 固定客户端ip，如：/cdd/user1
 # 内容为ifconfig-push 10.9.0.1 10.9.0.2，则固定ip10.9.0.1
@@ -248,11 +246,11 @@ explicit-exit-notify 1
 crl-verify ${VPN_FILE_CRL}
 EOF
 
-  if [[ -n "$VPN_CONF_PUSH" ]]; then
-    if [[ "$VPN_CONF_PUSH" =~ $SPLIT_STR ]]; then
+  if [[ -n "$TEMP_CONF_PUSH" ]]; then
+    if [[ "$TEMP_CONF_PUSH" =~ $SPLIT_STR ]]; then
       i=1
       while :; do
-          str=$(echo "$VPN_CONF_PUSH"|cut -d "$SPLIT_STR" -f$i)
+          str=$(echo "$TEMP_CONF_PUSH"|cut -d "$SPLIT_STR" -f$i)
           if [[ "$str" != "" ]]; then
             ((i++))
             echo "push \"$str\"" >> "$VPN_FILE_SERVER"
@@ -261,7 +259,7 @@ EOF
           fi
       done
     else
-      echo "push \"$VPN_CONF_PUSH\"" >> "$VPN_FILE_SERVER"
+      echo "push \"$TEMP_CONF_PUSH\"" >> "$VPN_FILE_SERVER"
     fi
   fi
 
@@ -278,11 +276,11 @@ EOF
 
 vpn_client_revoke() {
 
-  if ! vpn_check_req "$TEMP_CERT_NAME" ; then
-    ERROR "账号不存在，请先执行：\"vpn-cli build-client-conf -n $TEMP_CERT_NAME -r \$server_addr\""
+  if ! vpn_check_req "$VPN_F_CERT_SERVER_NAME" ; then
+    ERROR "账号不存在，请先执行：\"vpn-cli build-client-conf -n $VPN_F_CERT_SERVER_NAME -r \$server_addr\""
     exit 1
   fi
-  step_exec easyrsa revoke "$TEMP_CERT_NAME"
+  step_exec easyrsa revoke "$VPN_F_CERT_SERVER_NAME"
   echo "Generating the Certificate Revocation List :"
   step_exec easyrsa gen-crl
 }
@@ -341,7 +339,7 @@ vpn_list() {
   crts=$(find "$VPN_DIR_CERT" -name '*.crt')
 
   for name in $crts; do
-    cert_info "$name" "$VPN_DIR_CERT" "$VPN_CERT_SERVER_NAME"
+    cert_info "$name" "$VPN_DIR_CERT" "$VPN_F_CERT_SERVER_NAME"
   done
 
   # Clean
@@ -394,10 +392,10 @@ while :; do
       if [[ ! "$2" =~ ^[0-9]{1,}$  ]] || [[ "$2" -lt 1 ]] || [[ "$2" -gt 65535 ]];then
         ERROR "$1 端口范围：1～65535" >&2 && exit 1
       fi
-      VPN_CONF_PORT=$2; shift 2
+      VPN_F_CONF_PORT=$2; shift 2
       ;;
     -P|--plugin)
-      VPN_CONF_PLUGIN=$2; shift 2
+      VPN_F_CONF_PLUGIN=$2; shift 2
       ;;
     -s|--server)
       if [[ ! "$2" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\/[0-9]{1,2}$ ]];then
@@ -413,7 +411,7 @@ while :; do
             ERROR "$1 ip不合法" >&2 && exit 1
       fi
 
-      VPN_CONF_SERVER=$2; shift 2
+      VPN_F_CONF_SERVER=$2; shift 2
       ;;
     -r|--remote)
       if [[ ! "$2" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]];then
@@ -428,7 +426,7 @@ while :; do
       TEMP_CONF_REMOTE=$2; shift 2
       ;;
     --push)
-      VPN_CONF_PUSH=$2; shift 2
+      TEMP_CONF_PUSH=$2; shift 2
       ;;
     --route)
       TEMP_CONF_ROUTE=$2; shift 2
