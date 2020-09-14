@@ -12,7 +12,7 @@ if [[ -z $* ]];then
   step_exec openvpn --status-version 2 --suppress-timestamps --config "$VPN_FILE_SERVER"
 fi
 
-step_exec "$@"
+exec "$@"
 
 
 

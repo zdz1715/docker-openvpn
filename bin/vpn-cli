@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#set -e
+set -e
 
 # 加载函数
 . /usr/local/bin/func.sh
@@ -9,6 +9,7 @@
 TEMP_CERT_NAME=''
 TEMP_CONF_REMOTE=''
 TEMP_CONF_ROUTE=''
+
 
 SPLIT_STR=";"
 
@@ -24,7 +25,7 @@ VPN_DIR_CERT="${EASYRSA_PKI}/issued"
 VPN_DIR_KEY="${EASYRSA_PKI}/private"
 
 VPN_FILE_STATUS="${OPENVPN}/openvpn-status.log"
-VPN_FILE_CDD="${OPENVPN}/cdd"
+VPN_DIR_CDD="${OPENVPN}/cdd"
 VPN_FILE_CRL="${EASYRSA_PKI}/crl.pem"
 VPN_FILE_CA="${EASYRSA_PKI}/ca.crt"
 VPN_FILE_SERVER="${VPN_DIR_SERVER}/openvpn.conf"
@@ -58,14 +59,7 @@ vpn_check() {
   return 0
 }
 
-server_conf_init() {
-  [[ -z "$TEMP_CERT_NAME" ]] && TEMP_CERT_NAME='vpn_server'
-  [[ -z "$VPN_CONF_PORT" ]] && VPN_CONF_PORT=1194
-  [[ -z "$VPN_CONF_SERVER" ]] && VPN_CONF_SERVER='10.8.0.0/24'
 
-  VPN_CERT_SERVER_NAME=$TEMP_CERT_NAME
-
-}
 
 load_env() {
   if [[ -r "$OVPN_ENV" ]]; then
@@ -136,7 +130,7 @@ persist-key
 persist-tun
 remote-cert-tls server
 cipher AES-256-CBC
-compress lz4
+compress lz4-v2
 reneg-sec 0
 verb 3
 <ca>
@@ -174,11 +168,32 @@ route $(get_route ${VPN_CONF_SERVER}) vpn_gateway"
   echo "#######################################################################################"
 }
 
+server_conf_init() {
+
+  [[ -z "$TEMP_CERT_NAME" ]] && [[ -z "$VPN_CERT_SERVER_NAME" ]] && TEMP_CERT_NAME='vpn_server'
+  [[ -z "$VPN_CONF_PORT" ]] && VPN_CONF_PORT=1194
+  [[ -z "$VPN_CONF_SERVER" ]] && VPN_CONF_SERVER='10.8.0.0/24'
+
+  [[ -n "$TEMP_CERT_NAME" ]] && VPN_CERT_SERVER_NAME=$TEMP_CERT_NAME
+
+  return 0
+}
 
 vpn_server_conf() {
-  step "生成服务端配置文件："
+  # shellcheck source=src/util.sh
+  [[ -r "$OVPN_ENV" ]] && . "$OVPN_ENV"
+
+  echo "$VPN_CERT_SERVER_NAME"
+  echo $VPN_CONF_PORT
+  echo $VPN_CONF_SERVER
 
   server_conf_init
+
+  echo "$VPN_CERT_SERVER_NAME"
+  echo $VPN_CONF_PORT
+  echo $VPN_CONF_SERVER
+
+  step "生成服务端配置文件：$VPN_CERT_SERVER_NAME"
 
   if ! vpn_check_req "$VPN_CERT_SERVER_NAME"; then
     step_exec easyrsa build-server-full "$VPN_CERT_SERVER_NAME" nopass
@@ -186,8 +201,8 @@ vpn_server_conf() {
 
 
 
-  if [[ ! -d "${OPENVPN:-}/ccd" ]];then
-    step_exec mkdir -p "$VPN_FILE_CDD"
+  if [[ ! -d "$VPN_DIR_CDD" ]];then
+    step_exec mkdir -p "$VPN_DIR_CDD"
   fi
 
 cat > "$VPN_FILE_SERVER" <<EOF
@@ -202,18 +217,18 @@ server $(get_route $VPN_CONF_SERVER)
 ifconfig-pool-persist ${OPENVPN}/ipp.txt
 # 固定客户端ip，如：/cdd/user1
 # 内容为ifconfig-push 10.9.0.1 10.9.0.2，则固定ip10.9.0.1
-client-config-dir ${VPN_FILE_CDD}
+client-config-dir ${VPN_DIR_CDD}
 # 客户端互相可以访问
 client-to-client
 # 可以多个终端登录一个账户
 ;duplicate-cn
 # 心跳，每10s ping一次，ping不到60s之后认定客户端宕机
-keepalive 10 60
+keepalive 10 120
 # tls 加密验证，服务端为0，客户端为1
 tls-auth ${EASYRSA_PKI}/ta.key 0
 cipher AES-256-CBC
 # 压缩
-compress lz4
+compress lz4-v2
 # 最大连接客户端
 max-clients 1000
 # 使用nobody用户运行，更安全
@@ -272,7 +287,43 @@ vpn_client_revoke() {
   step_exec easyrsa gen-crl
 }
 
-vpn_client_list() {
+
+cert_info() {
+    begin=$(openssl x509 -noout -startdate -in "$1" | awk -F= '{ print $2 }')
+    end=$(openssl x509 -noout -enddate -in "$1" | awk -F= '{ print $2 }')
+    name=${1%.crt}
+    name=${name#"$2"/}
+    # check for revocation or expiration
+    command="openssl verify -crl_check -CAfile /tmp/cacheck.pem $1"
+    result=$($command)
+    if [ $(echo "$result" | wc -l) == 1 ] && [ "$(echo "$result" | grep ": OK")" ]; then
+        status="VALID"
+    else
+        result=$(echo "$result" | tail -n 1 | grep error | cut -d" " -f2)
+        case $result in
+            10)
+                status="EXPIRED"
+                ;;
+            23)
+                status="REVOKED"
+                ;;
+            *)
+                status="INVALID"
+        esac
+    fi
+
+    if [[ "$name" == 'ca' ]]; then
+      type='CA'
+    elif [ "$name" != "$3" ]; then
+      type='CLIENT'
+    else
+      type='SERVER'
+    fi
+
+    echo "$type,$name,$begin,$end,$status"
+}
+
+vpn_list() {
   # shellcheck source=src/util.sh
   [[ -r "$OVPN_ENV" ]] && . "$OVPN_ENV"
 
@@ -281,40 +332,16 @@ vpn_client_list() {
   else
     cat "$VPN_FILE_CA" > /tmp/cacheck.pem
   fi
-  echo "name,begin,end,status"
+  echo "TYPE,NAME,BEGIN,END,STATUS"
 
   [[ ! -d "$VPN_DIR_CERT" ]] && exit 0
+
+  cert_info "$VPN_FILE_CA" "$EASYRSA_PKI"
 
   crts=$(find "$VPN_DIR_CERT" -name '*.crt')
 
   for name in $crts; do
-    path=$name
-    begin=$(openssl x509 -noout -startdate -in "$path" | awk -F= '{ print $2 }')
-    end=$(openssl x509 -noout -enddate -in "$path" | awk -F= '{ print $2 }')
-
-    name=${name%.crt}
-    name=${name#"$VPN_DIR_CERT"/}
-    if [ "$name" != "$VPN_CERT_SERVER_NAME" ]; then
-        # check for revocation or expiration
-        command="openssl verify -crl_check -CAfile /tmp/cacheck.pem $path"
-        result=$($command)
-        if [ $(echo "$result" | wc -l) == 1 ] && [ "$(echo "$result" | grep ": OK")" ]; then
-            status="VALID"
-        else
-            result=$(echo "$result" | tail -n 1 | grep error | cut -d" " -f2)
-            case $result in
-                10)
-                    status="EXPIRED"
-                    ;;
-                23)
-                    status="REVOKED"
-                    ;;
-                *)
-                    status="INVALID"
-            esac
-        fi
-        echo "$name,$begin,$end,$status"
-    fi
+    cert_info "$name" "$VPN_DIR_CERT" "$VPN_CERT_SERVER_NAME"
   done
 
   # Clean
@@ -341,7 +368,7 @@ usage() {
       build-client-conf             生成客户端配置文件
       revoke                        撤销证书
       status                        客户端连接状态
-      list-client                   客户端列表
+      list                          证书列表
       check                         检查能否正常运行
     "
 }
@@ -422,7 +449,7 @@ case "$COMMAND" in
     vpn_init
     ;;
   build-server-conf)
-    step_exec vpn_check
+    vpn_check
     vpn_server_conf
     ;;
   build-client-conf)
@@ -434,15 +461,15 @@ case "$COMMAND" in
     vpn_client_revoke
     ;;
   status)
-    step_exec tail -F "$VPN_FILE_STATUS"
+    tail -F "$VPN_FILE_STATUS"
     ;;
-  list-client)
+  list)
     vpn_check
-    vpn_client_list
+    vpn_list
     ;;
   check)
     vpn_check
-    echo "it is ok!"
+    SUCCESS "it is ok!"
     ;;
   *)
     usage && exit 1
