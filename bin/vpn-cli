@@ -3,9 +3,7 @@
 #set -e
 
 # 加载函数
-. ./func.sh
-
-
+. /usr/local/bin/func.sh
 
 # 初始化变量
 TEMP_CERT_NAME=''
@@ -121,7 +119,7 @@ vpn_client_conf() {
    if ! vpn_check_req "$TEMP_CERT_NAME"; then
     step_exec easyrsa build-client-full "$TEMP_CERT_NAME" nopass
   else
-    WARNING "此账户已存在，若想重新生成证书请先执行：\"vpn-cli revoke-client -n $TEMP_CERT_NAME\""
+    WARNING "此账户已存在，若想重新生成证书请先执行：\"vpn-cli revoke -n $TEMP_CERT_NAME\""
   fi
   # shellcheck source=src/util.sh
   [[ -r "$OVPN_ENV" ]] && . "$OVPN_ENV"

@@ -6,10 +6,10 @@ set -e
 
 # 启动openvpn
 if [[ -z $* ]];then
+  step_exec vpn-cli check
   # shellcheck source=src/util.sh
   [[ -r "$OVPN_ENV" ]] && . "$OVPN_ENV"
-  step_exec vpn-cli check
-  step_exec openvpn --status-version 2 --suppress-timestamps --config "$VPN_CONF_SERVER_FILE"
+  step_exec openvpn --status-version 2 --suppress-timestamps --config "$VPN_FILE_SERVER"
 fi
 
 step_exec "$@"
