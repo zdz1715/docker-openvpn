@@ -22,6 +22,12 @@ cidr2mask()
     echo $subnetmask
 }
 
+date_format() {
+  time=$(date -d "$1" +"%Y-%m-%d %H:%M:%S")
+  echo "$time"
+  return 0
+}
+
 # Used often enough to justify a function
 get_route() {
     echo "${1%/*}" "$(cidr2mask $1)"

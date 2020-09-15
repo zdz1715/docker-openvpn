@@ -8,11 +8,13 @@ set -e
 # 初始化变量
 TEMP_CERT_NAME=''
 TEMP_CONF_REMOTE=''
-TEMP_CONF_ROUTE=''
-TEMP_CONF_PUSH=''
+TEMP_CONF_ROUTE=()
+TEMP_CONF_PUSH=()
+
+TEMP_CERT_NOPASS=''
 
 
-SPLIT_STR=";"
+
 
 VPN_F_CERT_SERVER_NAME=''
 VPN_F_CONF_PORT=''
@@ -42,22 +44,9 @@ vpn_check() {
   [[ ! -r "$VPN_FILE_CA" ]] && ERROR "文件不存在：$VPN_FILE_CA，请执行：\"vpn-cli init\"" >&2 && exit 1
   [[ ! -r "$VPN_FILE_SERVER" ]] && ERROR "文件不存在：$VPN_FILE_SERVER，请执行：\"vpn-cli build-server-conf\"" >&2 && exit 1
 
-  if [[ "$1" = "client-conf" ]]; then
-    if [[ -z "$VPN_F_CERT_SERVER_NAME" ]] || [[ -z "$TEMP_CONF_REMOTE" ]]; then
-      ERROR "\"vpn-cli $COMMAND\" requires at least 2 argument: -n|--name, -r|--remote"
-      exit 1
-    fi
-  fi
-
-  if [[ "$1" = "client" ]]; then
-    if [[ -z "$VPN_F_CERT_SERVER_NAME" ]]; then
-      ERROR "\"vpn-cli $COMMAND\" requires at least 1 argument: -n|--name"
-      exit 1
-    fi
-  fi
-
   return 0
 }
+
 
 
 
@@ -76,28 +65,25 @@ save_env() {
     echo "Backing up $OVPN_ENV -> $bak_env"
     mv "$OVPN_ENV" "$bak_env"
   fi
-
-  (set | grep '^VPN_') | while read -r var; do
-    echo "declare -x $var"  >> "$OVPN_ENV"
-  done
-
   INFO "配置："
-  cat "$OVPN_ENV"
-
+  (set | grep '^VPN_') | while read -r var; do
+    if (echo "$var" | grep '^VPN_F'); then
+      echo "[[ -z \$${var%%=*} ]] && declare -x $var"  >> "$OVPN_ENV"
+    else
+      echo "declare -x $var"  >> "$OVPN_ENV"
+    fi
+  done
+  echo "return 0"  >> "$OVPN_ENV"
 }
 
-vpn_init() {
-  server_conf_init
-  easy_init
-  vpn_server_conf
-}
+
 
 easy_init() {
   step "初始化证书"
 
 
   step_exec easyrsa init-pki
-  step_exec easyrsa build-ca nopass
+  step_exec easyrsa build-ca "$TEMP_CERT_NOPASS"
   step_exec easyrsa gen-dh
   step_exec openvpn --genkey --secret "$EASYRSA_PKI"/ta.key
   step_exec easyrsa gen-crl
@@ -108,18 +94,26 @@ vpn_check_req() {
   [[ -r "/etc/openvpn/pki/reqs/$1.req" ]] && return 0
 }
 
-vpn_client_conf() {
-  step "生成客户端端配置文件：$VPN_F_CERT_SERVER_NAME"
-   if ! vpn_check_req "$VPN_F_CERT_SERVER_NAME"; then
-    step_exec easyrsa build-client-full "$VPN_F_CERT_SERVER_NAME" nopass
-  else
-    WARNING "此账户已存在，若想重新生成证书请先执行：\"vpn-cli revoke -n $VPN_F_CERT_SERVER_NAME\""
+vpn_check_name() {
+  if [[ -z "$TEMP_CERT_NAME" ]]; then
+      ERROR "\"vpn-cli $COMMAND\" requires at least 1 argument: -n|--name"
+      exit 1
   fi
+}
+
+vpn_client_conf() {
+  step "生成客户端端配置文件：$TEMP_CERT_NAME"
+  if ! vpn_check_req "$TEMP_CERT_NAME"; then
+    step_exec easyrsa build-client-full "$TEMP_CERT_NAME" "$TEMP_CERT_NOPASS"
+  else
+    WARNING "此证书已存在，不会重新创建"
+  fi
+
   # shellcheck source=src/util.sh
   [[ -r "$OVPN_ENV" ]] && . "$OVPN_ENV"
 
 
-  echo "############################## 客户端（$VPN_F_CERT_SERVER_NAME）配置 #################################"
+  echo "############################## 客户端（$TEMP_CERT_NAME）配置 #################################"
   echo "client
 dev tun
 proto udp
@@ -149,26 +143,24 @@ $(cat ${VPN_DIR_KEY}/${TEMP_CERT_NAME}.key)
 route-nopull
 route $(get_route ${VPN_F_CONF_SERVER}) vpn_gateway"
 
-  if [[ -n "$TEMP_CONF_ROUTE" ]]; then
-    if [[ "$TEMP_CONF_ROUTE" =~ $SPLIT_STR ]]; then
-      i=1
-      while :; do
-          str=$(echo "$TEMP_CONF_ROUTE"|cut -d "$SPLIT_STR" -f$i)
-          if [[ "$str" != "" ]]; then
-            ((i++))
-            echo "route $str"
-          else
-              break
-          fi
-      done
-    else
-      echo "route $TEMP_CONF_ROUTE"
-    fi
-  fi
+  for c_route in "${TEMP_CONF_ROUTE[@]}"; do
+     echo "route ${c_route}"
+  done
+
   echo "#######################################################################################"
 }
 
+vpn_init() {
+  easy_init
+  vpn_server_conf
+}
+
 server_conf_init() {
+
+  [[ -n "$TEMP_CERT_NAME" ]] && VPN_F_CERT_SERVER_NAME=$TEMP_CERT_NAME
+
+  # shellcheck source=src/util.sh
+  [[ -r "$OVPN_ENV" ]] && . "$OVPN_ENV"
 
   [[ -z "$VPN_F_CERT_SERVER_NAME" ]] && VPN_F_CERT_SERVER_NAME='vpn_server'
   [[ -z "$VPN_F_CONF_PORT" ]] && VPN_F_CONF_PORT=1194
@@ -178,23 +170,17 @@ server_conf_init() {
 }
 
 vpn_server_conf() {
-  # shellcheck source=src/util.sh
-  [[ -r "$OVPN_ENV" ]] && . "$OVPN_ENV"
-
-  echo "$VPN_F_CERT_SERVER_NAME"
-  echo $VPN_F_CONF_PORT
-  echo $VPN_F_CONF_SERVER
 
   server_conf_init
-
-  echo "$VPN_F_CERT_SERVER_NAME"
-  echo $VPN_F_CONF_PORT
-  echo $VPN_F_CONF_SERVER
+  # shellcheck source=src/util.sh
+  [[ -r "$OVPN_ENV" ]] && . "$OVPN_ENV"
 
   step "生成服务端配置文件：$VPN_F_CERT_SERVER_NAME"
 
   if ! vpn_check_req "$VPN_F_CERT_SERVER_NAME"; then
-    step_exec easyrsa build-server-full "$VPN_F_CERT_SERVER_NAME" nopass
+    step_exec easyrsa build-server-full "$VPN_F_CERT_SERVER_NAME" "$TEMP_CERT_NOPASS"
+  else
+    WARNING "此证书已存在，不会重新创建"
   fi
 
 
@@ -213,8 +199,6 @@ key ${VPN_DIR_KEY}/${VPN_F_CERT_SERVER_NAME}.key
 dh ${EASYRSA_PKI}/dh.pem
 server $(get_route $VPN_F_CONF_SERVER)
 ifconfig-pool-persist ${OPENVPN}/ipp.txt
-# 固定客户端ip，如：/cdd/user1
-# 内容为ifconfig-push 10.9.0.1 10.9.0.2，则固定ip10.9.0.1
 client-config-dir ${VPN_DIR_CDD}
 # 客户端互相可以访问
 client-to-client
@@ -246,22 +230,10 @@ explicit-exit-notify 1
 crl-verify ${VPN_FILE_CRL}
 EOF
 
-  if [[ -n "$TEMP_CONF_PUSH" ]]; then
-    if [[ "$TEMP_CONF_PUSH" =~ $SPLIT_STR ]]; then
-      i=1
-      while :; do
-          str=$(echo "$TEMP_CONF_PUSH"|cut -d "$SPLIT_STR" -f$i)
-          if [[ "$str" != "" ]]; then
-            ((i++))
-            echo "push \"$str\"" >> "$VPN_FILE_SERVER"
-          else
-              break
-          fi
-      done
-    else
-      echo "push \"$TEMP_CONF_PUSH\"" >> "$VPN_FILE_SERVER"
-    fi
-  fi
+  for c_push in "${TEMP_CONF_PUSH[@]}"; do
+     echo "push \"${c_push}\"" >> "$VPN_FILE_SERVER"
+  done
+
 
   echo "############################## 服务端配置 #############################################"
 
@@ -274,28 +246,47 @@ EOF
   save_env
 }
 
-vpn_client_revoke() {
-
-  if ! vpn_check_req "$VPN_F_CERT_SERVER_NAME" ; then
-    ERROR "账号不存在，请先执行：\"vpn-cli build-client-conf -n $VPN_F_CERT_SERVER_NAME -r \$server_addr\""
+vpn_revoke() {
+  if ! vpn_check_req "$1" ; then
+    ERROR "证书不存在"
     exit 1
   fi
-  step_exec easyrsa revoke "$VPN_F_CERT_SERVER_NAME"
+
+   # shellcheck source=src/util.sh
+  [[ -r "$OVPN_ENV" ]] && . "$OVPN_ENV"
+
+  if [[ "$1" == "$VPN_F_CERT_SERVER_NAME" ]]; then
+    ERROR "当前服务端证书不能撤销，若想撤销，请先重新生成新的服务端证书"
+    exit 1
+  fi
+
+  step_exec easyrsa revoke "$1"
   echo "Generating the Certificate Revocation List :"
   step_exec easyrsa gen-crl
 }
+
+vpn_renew() {
+   if ! vpn_check_req "$1" ; then
+    ERROR "证书不存在"
+    exit 1
+  fi
+  step_exec easyrsa renew "$1" "$TEMP_CERT_NOPASS"
+}
+
 
 
 cert_info() {
     begin=$(openssl x509 -noout -startdate -in "$1" | awk -F= '{ print $2 }')
     end=$(openssl x509 -noout -enddate -in "$1" | awk -F= '{ print $2 }')
+    begin=$(date_format "$begin")
+    end=$(date_format "$end")
     name=${1%.crt}
     name=${name#"$2"/}
     # check for revocation or expiration
     command="openssl verify -crl_check -CAfile /tmp/cacheck.pem $1"
     result=$($command)
     if [ $(echo "$result" | wc -l) == 1 ] && [ "$(echo "$result" | grep ": OK")" ]; then
-        status="VALID"
+        status="VALID "
     else
         result=$(echo "$result" | tail -n 1 | grep error | cut -d" " -f2)
         case $result in
@@ -311,14 +302,15 @@ cert_info() {
     fi
 
     if [[ "$name" == 'ca' ]]; then
-      type='CA'
+      type='CA    '
     elif [ "$name" != "$3" ]; then
       type='CLIENT'
     else
       type='SERVER'
     fi
 
-    echo "$type,$name,$begin,$end,$status"
+    echo "$begin | $end | $status | $type | $name"
+    echo "-----------------------------------------------------------------------------------"
 }
 
 vpn_list() {
@@ -330,8 +322,9 @@ vpn_list() {
   else
     cat "$VPN_FILE_CA" > /tmp/cacheck.pem
   fi
-  echo "TYPE,NAME,BEGIN,END,STATUS"
-
+  echo "-----------------------------------------------------------------------------------"
+  echo "开始时间            | 结束时间            | 状态   | 类型   | 证书"
+  echo "-----------------------------------------------------------------------------------"
   [[ ! -d "$VPN_DIR_CERT" ]] && exit 0
 
   cert_info "$VPN_FILE_CA" "$EASYRSA_PKI"
@@ -341,7 +334,6 @@ vpn_list() {
   for name in $crts; do
     cert_info "$name" "$VPN_DIR_CERT" "$VPN_F_CERT_SERVER_NAME"
   done
-
   # Clean
   rm /tmp/cacheck.pem
 }
@@ -353,21 +345,24 @@ usage() {
     Options:
       -h, --help                    帮助
       -n, --name string             证书名称，服务端默认：vpn_server
+          --nopass                  证书密码选项
       -P, --plugin string           插件，可选：pam_mysql
       -p, --port int                端口，默认：1194
-          --push string             push选项，多个请用’;‘分割，格式：route 172.16.100.0 255.255.255.0 net_gateway,dhcp-option DNS 8.8.8.8
-      -r, --remote string           服务端地址ip
-          --route string            route选项，多个请用’;‘分割，格式：172.16.100.0 255.255.255.0 net_gateway,172.16.100.0 255.255.255.0 vpn_gateway
+          --push list               设置服务端push选项
+      -r, --remote string           设置客户端remote选项
+          --route list              设置客户端route选项
       -s, --server string           内网地址范围，默认：10.8.0.0/24
 
     Commands:
-      init                          初始化，生成证书和服务端配置文件
-      build-server-conf             生成服务端配置文件
       build-client-conf             生成客户端配置文件
+      build-server-conf             生成服务端配置文件
+      check                         检查能否正常运行
+      init                          初始化，生成证书和服务端配置文件
+      ip                            设置客户端ip
+      list                          证书列表
+      renew                         证书续期
       revoke                        撤销证书
       status                        客户端连接状态
-      list                          证书列表
-      check                         检查能否正常运行
     "
 }
 
@@ -375,7 +370,7 @@ usage() {
 
 
 
-TEMP=$(getopt -o hn:p:P:s:r: --long help,name:,port:,plugin:,server:,push:,route: -- "$@" 2>/dev/null)
+TEMP=$(getopt -o hn:p:P:s:r: --long help,nopass,name:,port:,plugin:,server:,push:,route: -- "$@" 2>/dev/null)
 [ $? != 0 ]  && usage && exit 1
 
 eval set -- "${TEMP}"
@@ -386,6 +381,9 @@ while :; do
       usage; exit 0
       ;;
     -n|--name)
+      if [[ "$2" == 'ca' ]] || [[ "$2" == 'CA' ]]; then
+        ERROR "名称不可用：$2 " >&2 && exit 1
+      fi
       TEMP_CERT_NAME=$2; shift 2
       ;;
     -p|--port)
@@ -426,10 +424,13 @@ while :; do
       TEMP_CONF_REMOTE=$2; shift 2
       ;;
     --push)
-      TEMP_CONF_PUSH=$2; shift 2
+      TEMP_CONF_PUSH=("${TEMP_CONF_PUSH[@]}" "$2"); shift 2
       ;;
     --route)
-      TEMP_CONF_ROUTE=$2; shift 2
+      TEMP_CONF_ROUTE=("${TEMP_CONF_ROUTE[@]}" "$2"); shift 2
+      ;;
+    --nopass)
+      TEMP_CERT_NOPASS='nopass'; shift 1
       ;;
     --)
       break
@@ -438,6 +439,8 @@ while :; do
       echo "${CWARNING}ERROR: unknown argument! ${CEND}" >&2 && usage && exit 1
   esac
 done
+
+
 # 验证命令
 shift
 COMMAND="$1"
@@ -451,12 +454,17 @@ case "$COMMAND" in
     vpn_server_conf
     ;;
   build-client-conf)
-    vpn_check "client-conf"
+
+    if [[ -z "$TEMP_CERT_NAME" ]] || [[ -z "$TEMP_CONF_REMOTE" ]]; then
+      ERROR "\"vpn-cli $COMMAND\" requires at least 2 argument: -n|--name, -r|--remote"
+      exit 1
+    fi
+
     vpn_client_conf
     ;;
   revoke)
-    vpn_check "client"
-    vpn_client_revoke
+    vpn_check_name
+    vpn_revoke "$TEMP_CERT_NAME"
     ;;
   status)
     tail -F "$VPN_FILE_STATUS"
@@ -468,6 +476,11 @@ case "$COMMAND" in
   check)
     vpn_check
     SUCCESS "it is ok!"
+    ;;
+  renew)
+    vpn_check
+    vpn_check_name
+    vpn_renew "$TEMP_CERT_NAME"
     ;;
   *)
     usage && exit 1
