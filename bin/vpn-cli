@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+
 
 # 加载函数
 . /usr/local/bin/func.sh
@@ -10,6 +10,11 @@ TEMP_CERT_NAME=''
 TEMP_CONF_REMOTE=''
 TEMP_CONF_ROUTE=()
 TEMP_CONF_PUSH=()
+TEMP_CONF_SET=()
+
+TEMP_CLIENT_IP_1=''
+TEMP_CLIENT_IP_2=''
+
 
 TEMP_CERT_NOPASS=''
 
@@ -32,12 +37,7 @@ VPN_FILE_CRL="${EASYRSA_PKI}/crl.pem"
 VPN_FILE_CA="${EASYRSA_PKI}/ca.crt"
 VPN_FILE_SERVER="${VPN_DIR_SERVER}/openvpn.conf"
 
-step()
-{
-  echo "# ========================================================= #"
-  echo "# $1 "
-  echo "# ========================================================= #"
-}
+
 
 vpn_check() {
   [[ ! -d "$EASYRSA_PKI" ]] && ERROR "目录不存在：$EASYRSA_PKI，请执行：\"vpn-cli init\"" >&2 && exit 1
@@ -96,8 +96,7 @@ vpn_check_req() {
 
 vpn_check_name() {
   if [[ -z "$TEMP_CERT_NAME" ]]; then
-      ERROR "\"vpn-cli $COMMAND\" requires at least 1 argument: -n|--name"
-      exit 1
+      ERROR "\"vpn-cli $COMMAND\" requires at least 1 argument: -n|--name" >&2 && exit 1
   fi
 }
 
@@ -241,23 +240,20 @@ EOF
 
   echo "#######################################################################################"
 
-  INFO "下次运行生效"
 
   save_env
 }
 
 vpn_revoke() {
   if ! vpn_check_req "$1" ; then
-    ERROR "证书不存在"
-    exit 1
+    ERROR "证书不存在" >&2 && exit 1
   fi
 
    # shellcheck source=src/util.sh
   [[ -r "$OVPN_ENV" ]] && . "$OVPN_ENV"
 
   if [[ "$1" == "$VPN_F_CERT_SERVER_NAME" ]]; then
-    ERROR "当前服务端证书不能撤销，若想撤销，请先重新生成新的服务端证书"
-    exit 1
+    ERROR "当前服务端证书不能撤销，若想撤销，请先重新生成新的服务端证书" >&2 && exit 1
   fi
 
   step_exec easyrsa revoke "$1"
@@ -267,8 +263,7 @@ vpn_revoke() {
 
 vpn_renew() {
    if ! vpn_check_req "$1" ; then
-    ERROR "证书不存在"
-    exit 1
+    ERROR "证书不存在" >&2 && exit 1
   fi
   step_exec easyrsa renew "$1" "$TEMP_CERT_NOPASS"
 }
@@ -323,7 +318,7 @@ vpn_list() {
     cat "$VPN_FILE_CA" > /tmp/cacheck.pem
   fi
   echo "-----------------------------------------------------------------------------------"
-  echo "开始时间            | 结束时间            | 状态   | 类型   | 证书"
+  echo "开始时间            | 结束时间            | 状态   | 类型   | ip | server ip endpoints | 证书"
   echo "-----------------------------------------------------------------------------------"
   [[ ! -d "$VPN_DIR_CERT" ]] && exit 0
 
@@ -338,6 +333,34 @@ vpn_list() {
   rm /tmp/cacheck.pem
 }
 
+
+
+vpn_set_ip() {
+  if ! vpn_check_req "$1" ; then
+    ERROR "证书不存在" >&2 && exit 1
+  fi
+  # shellcheck source=src/util.sh
+  [[ -r "$OVPN_ENV" ]] && . "$OVPN_ENV"
+
+  if [[ "$1" == "$VPN_F_CERT_SERVER_NAME" ]]; then
+    ERROR "服务端不用固定ip" >&2 && exit 1
+  fi
+
+
+  ip1_name=$(grep -rwl "$2" "$VPN_DIR_CDD")
+  ip2_name=$(grep -rwl "$3" "$VPN_DIR_CDD")
+
+  if [[ "${ip1_name#$VPN_DIR_CDD/}" != "$1" ]]; then
+    ERROR "ip冲突：$ip1_name" >&2 && cat "$ip1_name" && exit 1
+  fi
+
+  if [[ "${ip2_name#$VPN_DIR_CDD/}" != "$1" ]]; then
+    ERROR "ip冲突：$ip2_name" >&2 && cat "$ip3_name" && exit 1
+  fi
+
+  echo "ifconfig-push $2 $3" > "$VPN_DIR_CDD/$1"
+}
+
 usage() {
     echo
     echo "Usage: vpn-cli COMMAND [OPTIONS]
@@ -345,13 +368,15 @@ usage() {
     Options:
       -h, --help                    帮助
       -n, --name string             证书名称，服务端默认：vpn_server
-          --nopass                  证书密码选项
       -P, --plugin string           插件，可选：pam_mysql
       -p, --port int                端口，默认：1194
           --push list               设置服务端push选项
+          --pair1 string            设置客户端IP
+          --pair2 string            设置客户端IP
       -r, --remote string           设置客户端remote选项
           --route list              设置客户端route选项
       -s, --server string           内网地址范围，默认：10.8.0.0/24
+          --set list                设置一行openvpn配置
 
     Commands:
       build-client-conf             生成客户端配置文件
@@ -360,6 +385,7 @@ usage() {
       init                          初始化，生成证书和服务端配置文件
       ip                            设置客户端ip
       list                          证书列表
+      list-ip                       ip列表
       renew                         证书续期
       revoke                        撤销证书
       status                        客户端连接状态
@@ -370,8 +396,11 @@ usage() {
 
 
 
-TEMP=$(getopt -o hn:p:P:s:r: --long help,nopass,name:,port:,plugin:,server:,push:,route: -- "$@" 2>/dev/null)
+TEMP=$(getopt -o hn:p:P:s:r: --long help,nopass,name:,port:,plugin:,server:,push:,route:,pair1:,pair2: -- "$@" 2>/dev/null)
 [ $? != 0 ]  && usage && exit 1
+
+# 在参数验证之后
+set -e
 
 eval set -- "${TEMP}"
 while :; do
@@ -404,23 +433,12 @@ while :; do
         ERROR "$1 子网掩码范围为：0～32" >&2 && exit 1
       fi
 
-      VALID_CHECK=$(echo "${2%/*}"|awk -F. '$1<=255&&$2<=255&&$3<=255&&$4<=255{print "yes"}')
-      if [[ ${VALID_CHECK:-no} != "yes" ]]; then
-            ERROR "$1 ip不合法" >&2 && exit 1
-      fi
+      check_ip "${2%/*}" "$1 ip格式不对"
 
       VPN_F_CONF_SERVER=$2; shift 2
       ;;
     -r|--remote)
-      if [[ ! "$2" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]];then
-        ERROR "$1 服务端地址ip不合法" >&2 && exit 1
-      fi
-
-      VALID_CHECK=$(echo "${2%/*}"|awk -F. '$1<=255&&$2<=255&&$3<=255&&$4<=255{print "yes"}')
-      if [[ ${VALID_CHECK:-no} != "yes" ]]; then
-            ERROR "$1 服务端地址ip不合法" >&2 && exit 1
-      fi
-
+      check_ip "$2" "$1 ip格式不对"
       TEMP_CONF_REMOTE=$2; shift 2
       ;;
     --push)
@@ -429,8 +447,17 @@ while :; do
     --route)
       TEMP_CONF_ROUTE=("${TEMP_CONF_ROUTE[@]}" "$2"); shift 2
       ;;
+    --set)
+      TEMP_CONF_SET=("${TEMP_CONF_SET[@]}" "$2"); shift 2
+      ;;
     --nopass)
       TEMP_CERT_NOPASS='nopass'; shift 1
+      ;;
+    --pair1)
+      TEMP_CLIENT_IP_1="$2"; shift 2
+      ;;
+    --pair2)
+      TEMP_CLIENT_IP_2="$2"; shift 2
       ;;
     --)
       break
@@ -448,23 +475,26 @@ COMMAND="$1"
 case "$COMMAND" in
   init)
     vpn_init
+    SUCCESS "初始化成功，可以运行了！"
     ;;
   build-server-conf)
     vpn_check
     vpn_server_conf
+    SUCCESS "创建成功，下次运行生效！"
     ;;
   build-client-conf)
-
+    vpn_check
     if [[ -z "$TEMP_CERT_NAME" ]] || [[ -z "$TEMP_CONF_REMOTE" ]]; then
-      ERROR "\"vpn-cli $COMMAND\" requires at least 2 argument: -n|--name, -r|--remote"
-      exit 1
+      ERROR "\"vpn-cli $COMMAND\" requires at least 2 argument: -n|--name, -r|--remote" >&2 && exit 1
     fi
 
     vpn_client_conf
+    SUCCESS "客户端配置文件（$TEMP_CERT_NAME）创建成功！"
     ;;
   revoke)
     vpn_check_name
     vpn_revoke "$TEMP_CERT_NAME"
+    SUCCESS "证书（$TEMP_CERT_NAME）撤销成功！"
     ;;
   status)
     tail -F "$VPN_FILE_STATUS"
@@ -481,6 +511,18 @@ case "$COMMAND" in
     vpn_check
     vpn_check_name
     vpn_renew "$TEMP_CERT_NAME"
+    SUCCESS "证书（$TEMP_CERT_NAME）续期成功！"
+    ;;
+  ip)
+    vpn_check
+    if [[ -z "$TEMP_CERT_NAME" ]] || [[ -z "$TEMP_CLIENT_IP_1" ]] || [[ -z "$TEMP_CLIENT_IP_2" ]]; then
+      ERROR "\"vpn-cli $COMMAND\" requires at least 3 argument: -n|--name, --pair1, --pair2" >&2 && exit 1
+    fi
+    check_ip "$TEMP_CLIENT_IP_1" "--pair1 ip格式不对"
+    check_ip "$TEMP_CLIENT_IP_2" "--pair2 ip格式不对"
+
+    vpn_set_ip "$TEMP_CERT_NAME" "$TEMP_CLIENT_IP_1" "$TEMP_CLIENT_IP_2"
+    SUCCESS "$TEMP_CERT_NAME：$TEMP_CLIENT_IP_1"
     ;;
   *)
     usage && exit 1

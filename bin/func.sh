@@ -28,6 +28,13 @@ date_format() {
   return 0
 }
 
+step()
+{
+  echo "# ========================================================= #"
+  echo "# $1 "
+  echo "# ========================================================= #"
+}
+
 # Used often enough to justify a function
 get_route() {
     echo "${1%/*}" "$(cidr2mask $1)"
@@ -38,6 +45,7 @@ ERROR() {
 }
 
 SUCCESS() {
+  echo
   echo "[$(date +%H:%M:%S)] [SUCCESS] $*"
 }
 
@@ -53,4 +61,16 @@ step_exec() {
     echo -e "[$(date +%H:%M:%S)] [执行命令] $*"
     "$@" 2>&1
     return "${PIPESTATUS[0]}"
+}
+
+check_ip() {
+  if [[ ! "$1" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]];then
+        ERROR "$2" >&2 && exit 1
+  fi
+
+  VALID_CHECK=$(echo "$1"|awk -F. '$1<=255&&$2<=255&&$3<=255&&$4<=255{print "yes"}')
+  if [[ ${VALID_CHECK:-no} != "yes" ]]; then
+        ERROR "$2" >&2 && exit 1
+  fi
+  return 0
 }

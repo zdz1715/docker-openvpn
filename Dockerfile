@@ -27,5 +27,6 @@ ADD ./bin /usr/local/bin
 RUN chmod +x /entrypoint.sh; \
     chmod a+x /usr/local/bin/*;
 
+WORKDIR /etc/openvpn
 
 ENTRYPOINT ["/entrypoint.sh"]
