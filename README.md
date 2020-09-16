@@ -39,14 +39,21 @@ docker run --rm -it -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli rev
 ## 定制服务端配置
 * 初始化
 ```shell script
- docker run --rm -it -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli init --nopass -n $NAME -s $SERVER -p $PORT --push "route 10.171.48.0 255.255.248.0" --push="route 0.0.0.0 0.0.0.0"
+ docker run --rm -it -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli init --nopass -n $NAME -s $SERVER -p $PORT --set $line1 --set $line2 
 ```
 * 初始化之后
 
 再不更改根证书的情况下，可以生成新的服务端证书和配置,若证书名称不传或者和以前一样则不会重新生成证书
 
 ```shell script
- docker run --rm -it -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli build-server-conf -n $NAME -s $SERVER -p $PORT --push "route 10.171.48.0 255.255.248.0" --push="route 0.0.0.0 0.0.0.0"
+ docker run --rm -it -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli build-server-conf -n $NAME -s $SERVER -p $PORT --set $line1 --set $line2
+```
+
+* 例子
+
+```shell script
+# 服务端
+docker run --rm -it -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli build-server-conf --set 'push \"dhcp-option DNS 8.8.8.8\"' --set 'push \"dhcp-option DNS 114.114.114.114\"'
 ```
 
 ## 证书有效期

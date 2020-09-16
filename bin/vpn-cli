@@ -8,8 +8,6 @@
 # 初始化变量
 TEMP_CERT_NAME=''
 TEMP_CONF_REMOTE=''
-TEMP_CONF_ROUTE=()
-TEMP_CONF_PUSH=()
 TEMP_CONF_SET=()
 
 TEMP_CLIENT_IP_1=''
@@ -96,21 +94,25 @@ vpn_check_req() {
 
 vpn_check_name() {
   if [[ -z "$TEMP_CERT_NAME" ]]; then
-      ERROR "\"vpn-cli $COMMAND\" requires at least 1 argument: -n|--name" >&2 && exit 1
+      ERROR "\"vpn-cli $COMMAND\" requires at least 1 argument: -n|--name" >&2 && usage exit 1
   fi
 }
 
 vpn_client_conf() {
   step "生成客户端端配置文件：$TEMP_CERT_NAME"
+
+   # shellcheck source=src/util.sh
+  [[ -r "$OVPN_ENV" ]] && . "$OVPN_ENV"
+
+  if [[ "$TEMP_CERT_NAME" == "$VPN_F_CERT_SERVER_NAME" ]]; then
+    ERROR "名称不可用：$VPN_F_CERT_SERVER_NAME" >&2 && exit 1
+  fi
+
   if ! vpn_check_req "$TEMP_CERT_NAME"; then
     step_exec easyrsa build-client-full "$TEMP_CERT_NAME" "$TEMP_CERT_NOPASS"
   else
     WARNING "此证书已存在，不会重新创建"
   fi
-
-  # shellcheck source=src/util.sh
-  [[ -r "$OVPN_ENV" ]] && . "$OVPN_ENV"
-
 
   echo "############################## 客户端（$TEMP_CERT_NAME）配置 #################################"
   echo "client
@@ -142,8 +144,8 @@ $(cat ${VPN_DIR_KEY}/${TEMP_CERT_NAME}.key)
 route-nopull
 route $(get_route ${VPN_F_CONF_SERVER}) vpn_gateway"
 
-  for c_route in "${TEMP_CONF_ROUTE[@]}"; do
-     echo "route ${c_route}"
+  for c_set in "${TEMP_CONF_SET[@]}"; do
+     echo "$c_set"
   done
 
   echo "#######################################################################################"
@@ -229,8 +231,8 @@ explicit-exit-notify 1
 crl-verify ${VPN_FILE_CRL}
 EOF
 
-  for c_push in "${TEMP_CONF_PUSH[@]}"; do
-     echo "push \"${c_push}\"" >> "$VPN_FILE_SERVER"
+  for c_set in "${TEMP_CONF_SET[@]}"; do
+     echo "$c_set" >> "$VPN_FILE_SERVER"
   done
 
 
@@ -271,42 +273,54 @@ vpn_renew() {
 
 
 cert_info() {
-    begin=$(openssl x509 -noout -startdate -in "$1" | awk -F= '{ print $2 }')
-    end=$(openssl x509 -noout -enddate -in "$1" | awk -F= '{ print $2 }')
-    begin=$(date_format "$begin")
-    end=$(date_format "$end")
-    name=${1%.crt}
-    name=${name#"$2"/}
-    # check for revocation or expiration
-    command="openssl verify -crl_check -CAfile /tmp/cacheck.pem $1"
-    result=$($command)
-    if [ $(echo "$result" | wc -l) == 1 ] && [ "$(echo "$result" | grep ": OK")" ]; then
-        status="VALID "
-    else
-        result=$(echo "$result" | tail -n 1 | grep error | cut -d" " -f2)
-        case $result in
-            10)
-                status="EXPIRED"
-                ;;
-            23)
-                status="REVOKED"
-                ;;
-            *)
-                status="INVALID"
-        esac
-    fi
+  begin=$(openssl x509 -noout -startdate -in "$1" | awk -F= '{ print $2 }')
+  end=$(openssl x509 -noout -enddate -in "$1" | awk -F= '{ print $2 }')
+  begin=$(date_format "$begin")
+  end=$(date_format "$end")
+  name=${1%.crt}
+  name=${name#"$2"/}
 
-    if [[ "$name" == 'ca' ]]; then
-      type='CA    '
-    elif [ "$name" != "$3" ]; then
-      type='CLIENT'
-    else
-      type='SERVER'
-    fi
+  ip_list=($(vpn_get_ip "$name"))
+  ip_1="${ip_list[0]}"
+  ip_2="${ip_list[1]}"
 
-    echo "$begin | $end | $status | $type | $name"
-    echo "-----------------------------------------------------------------------------------"
+  # check for revocation or expiration
+  command="openssl verify -crl_check -CAfile /tmp/cacheck.pem $1"
+  result=$($command)
+  if [ $(echo "$result" | wc -l) == 1 ] && [ "$(echo "$result" | grep ": OK")" ]; then
+      status="VALID "
+  else
+      result=$(echo "$result" | tail -n 1 | grep error | cut -d" " -f2)
+      case $result in
+          10)
+              status="EXPIRED"
+              ;;
+          23)
+              status="REVOKED"
+              ;;
+          *)
+              status="INVALID"
+      esac
+  fi
+
+  if [[ "$name" == 'ca' ]]; then
+    type='CA    '
+  elif [ "$name" != "$3" ]; then
+    type='CLIENT'
+  else
+    type='SERVER'
+  fi
+
+  echo "$begin | $end | $status | $type | $(ip_len_print "$ip_1") | $(ip_len_print "$ip_2") | $name"
+  echo "---------------------------------------------------------------------------------------------------------------"
 }
+
+ip_len_print() {
+  str=$(echo "$1" | awk '{width=15; printf("%s",$1); for(i=0;i<width-length($1);++i) printf " "; print ""}')
+  echo "$str"
+  return 0
+}
+
 
 vpn_list() {
   # shellcheck source=src/util.sh
@@ -317,14 +331,18 @@ vpn_list() {
   else
     cat "$VPN_FILE_CA" > /tmp/cacheck.pem
   fi
-  echo "-----------------------------------------------------------------------------------"
-  echo "开始时间            | 结束时间            | 状态   | 类型   | ip | server ip endpoints | 证书"
-  echo "-----------------------------------------------------------------------------------"
+  echo "---------------------------------------------------------------------------------------------------------------"
+  echo "开始时间            | 结束时间            | 状态   | 类型   | ip              | ip_peer         | 证书"
+  echo "---------------------------------------------------------------------------------------------------------------"
   [[ ! -d "$VPN_DIR_CERT" ]] && exit 0
 
+  # CA证书
   cert_info "$VPN_FILE_CA" "$EASYRSA_PKI"
 
-  crts=$(find "$VPN_DIR_CERT" -name '*.crt')
+   # 服务段证书
+  cert_info "$VPN_DIR_CERT/$VPN_F_CERT_SERVER_NAME.crt" "$VPN_DIR_CERT" "$VPN_F_CERT_SERVER_NAME"
+
+  crts=$(find "$VPN_DIR_CERT" -name '*.crt' ! -name "$VPN_F_CERT_SERVER_NAME.crt")
 
   for name in $crts; do
     cert_info "$name" "$VPN_DIR_CERT" "$VPN_F_CERT_SERVER_NAME"
@@ -333,6 +351,15 @@ vpn_list() {
   rm /tmp/cacheck.pem
 }
 
+vpn_get_ip() {
+    file="$VPN_DIR_CDD/$1"
+    if [[ -r "$file" ]]; then
+      grep -o '[0-9]\{1,3\}.[0-9]\{1,3\}.[0-9]\{1,3\}.[0-9]\{1,3\}' "$file"
+    else
+       echo '- -'
+    fi
+    return 0
+}
 
 
 vpn_set_ip() {
@@ -350,31 +377,30 @@ vpn_set_ip() {
   ip1_name=$(grep -rwl "$2" "$VPN_DIR_CDD")
   ip2_name=$(grep -rwl "$3" "$VPN_DIR_CDD")
 
-  if [[ "${ip1_name#$VPN_DIR_CDD/}" != "$1" ]]; then
-    ERROR "ip冲突：$ip1_name" >&2 && cat "$ip1_name" && exit 1
+
+  if [[ -n "$ip1_name" ]] && [[ "${ip1_name#$VPN_DIR_CDD/}" != "$1" ]]; then
+    ERROR "ip冲突：$ip1_name" && cat "$ip1_name" && exit 1
   fi
 
-  if [[ "${ip2_name#$VPN_DIR_CDD/}" != "$1" ]]; then
-    ERROR "ip冲突：$ip2_name" >&2 && cat "$ip3_name" && exit 1
+  if [[ -n "$ip2_name" ]] &&  [[ "${ip2_name#$VPN_DIR_CDD/}" != "$1" ]]; then
+    ERROR "ip冲突：$ip2_name" && cat "$ip2_name" && exit 1
   fi
 
   echo "ifconfig-push $2 $3" > "$VPN_DIR_CDD/$1"
 }
 
 usage() {
+    #       -P, --plugin string           插件，可选：pam_mysql
     echo
     echo "Usage: vpn-cli COMMAND [OPTIONS]
 
     Options:
       -h, --help                    帮助
       -n, --name string             证书名称，服务端默认：vpn_server
-      -P, --plugin string           插件，可选：pam_mysql
       -p, --port int                端口，默认：1194
-          --push list               设置服务端push选项
           --pair1 string            设置客户端IP
           --pair2 string            设置客户端IP
       -r, --remote string           设置客户端remote选项
-          --route list              设置客户端route选项
       -s, --server string           内网地址范围，默认：10.8.0.0/24
           --set list                设置一行openvpn配置
 
@@ -396,11 +422,11 @@ usage() {
 
 
 
-TEMP=$(getopt -o hn:p:P:s:r: --long help,nopass,name:,port:,plugin:,server:,push:,route:,pair1:,pair2: -- "$@" 2>/dev/null)
+TEMP=$(getopt -o hn:p:P:s:r: --long help,nopass,name:,port:,plugin:,server:,set:,pair1:,pair2: -- "$@" 2>/dev/null)
 [ $? != 0 ]  && usage && exit 1
 
 # 在参数验证之后
-set -e
+#set -e
 
 eval set -- "${TEMP}"
 while :; do
@@ -441,12 +467,6 @@ while :; do
       check_ip "$2" "$1 ip格式不对"
       TEMP_CONF_REMOTE=$2; shift 2
       ;;
-    --push)
-      TEMP_CONF_PUSH=("${TEMP_CONF_PUSH[@]}" "$2"); shift 2
-      ;;
-    --route)
-      TEMP_CONF_ROUTE=("${TEMP_CONF_ROUTE[@]}" "$2"); shift 2
-      ;;
     --set)
       TEMP_CONF_SET=("${TEMP_CONF_SET[@]}" "$2"); shift 2
       ;;
@@ -485,7 +505,7 @@ case "$COMMAND" in
   build-client-conf)
     vpn_check
     if [[ -z "$TEMP_CERT_NAME" ]] || [[ -z "$TEMP_CONF_REMOTE" ]]; then
-      ERROR "\"vpn-cli $COMMAND\" requires at least 2 argument: -n|--name, -r|--remote" >&2 && exit 1
+      ERROR "\"vpn-cli $COMMAND\" requires at least 2 argument: -n|--name, -r|--remote" >&2 && usage && exit 1
     fi
 
     vpn_client_conf
@@ -516,7 +536,7 @@ case "$COMMAND" in
   ip)
     vpn_check
     if [[ -z "$TEMP_CERT_NAME" ]] || [[ -z "$TEMP_CLIENT_IP_1" ]] || [[ -z "$TEMP_CLIENT_IP_2" ]]; then
-      ERROR "\"vpn-cli $COMMAND\" requires at least 3 argument: -n|--name, --pair1, --pair2" >&2 && exit 1
+      ERROR "\"vpn-cli $COMMAND\" requires at least 3 argument: -n|--name, --pair1, --pair2" >&2 && usage && exit 1
     fi
     check_ip "$TEMP_CLIENT_IP_1" "--pair1 ip格式不对"
     check_ip "$TEMP_CLIENT_IP_2" "--pair2 ip格式不对"

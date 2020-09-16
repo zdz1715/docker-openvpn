@@ -45,7 +45,6 @@ ERROR() {
 }
 
 SUCCESS() {
-  echo
   echo "[$(date +%H:%M:%S)] [SUCCESS] $*"
 }
 
