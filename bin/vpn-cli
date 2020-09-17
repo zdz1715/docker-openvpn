@@ -10,6 +10,7 @@ TEMP_CERT_NAME=''
 TEMP_CONF_REMOTE=''
 TEMP_CONF_SET=()
 
+
 TEMP_CLIENT_IP_1=''
 TEMP_CLIENT_IP_2=''
 
@@ -28,6 +29,7 @@ VPN_F_CONF_SERVER=''
 VPN_DIR_SERVER="${OPENVPN}/server"
 VPN_DIR_CERT="${EASYRSA_PKI}/issued"
 VPN_DIR_KEY="${EASYRSA_PKI}/private"
+VPN_DIR_REQ="${EASYRSA_PKI}/reqs"
 
 VPN_FILE_STATUS="${OPENVPN}/openvpn-status.log"
 VPN_DIR_CDD="${OPENVPN}/cdd"
@@ -89,12 +91,12 @@ easy_init() {
 }
 
 vpn_check_req() {
-  [[ -r "/etc/openvpn/pki/reqs/$1.req" ]] && return 0
+  [[ -r "$VPN_DIR_REQ/$1.req" ]] && return 0
 }
 
 vpn_check_name() {
   if [[ -z "$TEMP_CERT_NAME" ]]; then
-      ERROR "\"vpn-cli $COMMAND\" requires at least 1 argument: -n|--name" >&2 && usage exit 1
+      ERROR "\"vpn-cli $COMMAND\" requires at least 1 argument: -n|--name" >&2 && usage && exit 1
   fi
 }
 
@@ -246,6 +248,14 @@ EOF
   save_env
 }
 
+remove_files(){
+  [[ -f "$VPN_DIR_CERT/$1.crt" ]] && step_exec rm -v "$VPN_DIR_CERT/$1.crt"
+  [[ -f "$VPN_DIR_KEY/$1.key" ]] && step_exec rm -v "$VPN_DIR_KEY/$1.key"
+  [[ -f "$VPN_DIR_REQ/$1.req" ]] && step_exec rm -v "$VPN_DIR_REQ/$1.req"
+  [[ -f "$VPN_DIR_CDD/$1" ]] && step_exec rm -v "$VPN_DIR_CDD/$1"
+  return 0
+}
+
 vpn_revoke() {
   if ! vpn_check_req "$1" ; then
     ERROR "证书不存在" >&2 && exit 1
@@ -259,6 +269,7 @@ vpn_revoke() {
   fi
 
   step_exec easyrsa revoke "$1"
+  remove_files "$1"
   echo "Generating the Certificate Revocation List :"
   step_exec easyrsa gen-crl
 }
@@ -319,6 +330,27 @@ ip_len_print() {
   str=$(echo "$1" | awk '{width=15; printf("%s",$1); for(i=0;i<width-length($1);++i) printf " "; print ""}')
   echo "$str"
   return 0
+}
+
+
+vpn_ip_list() {
+   # shellcheck source=src/util.sh
+  [[ -r "$OVPN_ENV" ]] && . "$OVPN_ENV"
+
+  echo "----------------------------------------------------"
+  echo "ip              | ip_peer         | 用户"
+  echo "----------------------------------------------------"
+  [[ ! -d "$VPN_DIR_CDD" ]] && exit 0
+
+  users=$(ls "$VPN_DIR_CDD")
+
+  for user in $users; do
+    ip_list=($(vpn_get_ip "$user"))
+    ip_1="${ip_list[0]}"
+    ip_2="${ip_list[1]}"
+    echo "$(ip_len_print "$ip_1") | $(ip_len_print "$ip_2") | $user"
+    echo "----------------------------------------------------"
+  done
 }
 
 
@@ -424,9 +456,6 @@ usage() {
 
 TEMP=$(getopt -o hn:p:P:s:r: --long help,nopass,name:,port:,plugin:,server:,set:,pair1:,pair2: -- "$@" 2>/dev/null)
 [ $? != 0 ]  && usage && exit 1
-
-# 在参数验证之后
-#set -e
 
 eval set -- "${TEMP}"
 while :; do
@@ -543,6 +572,10 @@ case "$COMMAND" in
 
     vpn_set_ip "$TEMP_CERT_NAME" "$TEMP_CLIENT_IP_1" "$TEMP_CLIENT_IP_2"
     SUCCESS "$TEMP_CERT_NAME：$TEMP_CLIENT_IP_1"
+    ;;
+  list-ip)
+    vpn_check
+    vpn_ip_list
     ;;
   *)
     usage && exit 1

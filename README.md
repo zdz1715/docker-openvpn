@@ -76,7 +76,19 @@ docker run -env EASYRSA_CERT_EXPIRE=3650 --rm -it -v openvpn:/etc/openvpn zdzser
  docker run --rm -it -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli --help
 ```
 
-## windows 客户端IP区间
+## 客户端ip
+
+* 设置客户端ip
+```shell script
+ docker run --rm -it -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli ip -n user1 --pair1 10.8.1.8 --pair2 10.8.1.9
+```
+
+* ip列表
+```shell script
+ docker run --rm -it -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli list-ip
+```
+
+### windows 客户端IP区间
 
 [文档](https://openvpn.net/community-resources/configuring-client-specific-rules-and-access-policies/)
 

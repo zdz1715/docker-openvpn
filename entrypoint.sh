@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 # 加载函数
 . /usr/local/bin/func.sh
 
