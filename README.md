@@ -11,7 +11,7 @@ docker run --rm -it -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli ini
 ```
 3.运行，推荐host模式，提高网络性能
 ```shell script
-docker run --net=host -d --privileged --restart always -v openvpn:/etc/openvpn zdzserver/docker-openvpn
+docker run --cap-add=NET_ADMIN --net=host --restart always -d -v openvpn:/etc/openvpn zdzserver/docker-openvpn
 ```
 4.生成客户端
 ```shell script
