@@ -112,6 +112,7 @@ vpn_client_conf() {
 
   if ! vpn_check_req "$TEMP_CERT_NAME"; then
     step_exec easyrsa build-client-full "$TEMP_CERT_NAME" "$TEMP_CERT_NOPASS"
+    [ $? != 0 ]  && ERROR "证书创建失败" >&2 && exit 1
   else
     WARNING "此证书已存在，不会重新创建"
   fi
@@ -182,6 +183,7 @@ vpn_server_conf() {
 
   if ! vpn_check_req "$VPN_F_CERT_SERVER_NAME"; then
     step_exec easyrsa build-server-full "$VPN_F_CERT_SERVER_NAME" "$TEMP_CERT_NOPASS"
+    [ $? != 0 ]  && ERROR "证书创建失败" >&2 && exit 1
   else
     WARNING "此证书已存在，不会重新创建"
   fi
@@ -269,9 +271,11 @@ vpn_revoke() {
   fi
 
   step_exec easyrsa revoke "$1"
-  remove_files "$1"
-  echo "Generating the Certificate Revocation List :"
-  step_exec easyrsa gen-crl
+  if [[ $? == 0 ]]; then
+    remove_files "$1"
+    echo "Generating the Certificate Revocation List :"
+    step_exec easyrsa gen-crl
+  fi
 }
 
 vpn_renew() {
@@ -456,6 +460,8 @@ usage() {
 
 TEMP=$(getopt -o hn:p:P:s:r: --long help,nopass,name:,port:,plugin:,server:,set:,pair1:,pair2: -- "$@" 2>/dev/null)
 [ $? != 0 ]  && usage && exit 1
+
+set -e
 
 eval set -- "${TEMP}"
 while :; do
