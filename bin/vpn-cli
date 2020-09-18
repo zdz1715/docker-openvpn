@@ -461,8 +461,6 @@ usage() {
 TEMP=$(getopt -o hn:p:P:s:r: --long help,nopass,name:,port:,plugin:,server:,set:,pair1:,pair2: -- "$@" 2>/dev/null)
 [ $? != 0 ]  && usage && exit 1
 
-set -e
-
 eval set -- "${TEMP}"
 while :; do
   [ -z "$1" ] && break;
