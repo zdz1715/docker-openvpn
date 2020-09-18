@@ -143,7 +143,7 @@ $(openssl x509 -in ${VPN_DIR_CERT}/${TEMP_CERT_NAME}.crt)
 <key>
 $(cat ${VPN_DIR_KEY}/${TEMP_CERT_NAME}.key)
 </key>
-route-nopull
+# route-nopull
 route $(get_route ${VPN_F_CONF_SERVER}) vpn_gateway"
 
   for c_set in "${TEMP_CONF_SET[@]}"; do
