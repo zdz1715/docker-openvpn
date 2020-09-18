@@ -493,7 +493,6 @@ while :; do
       VPN_F_CONF_SERVER=$2; shift 2
       ;;
     -r|--remote)
-      check_ip "$2" "$1 ip格式不对"
       TEMP_CONF_REMOTE=$2; shift 2
       ;;
     --set)
