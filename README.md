@@ -59,7 +59,7 @@ docker run --rm -it -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli rev
 
 ```shell script
 # 服务端
-docker run --rm -it -v -e EASYRSA_CERT_EXPIRE=3650 openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli build-server-conf -p 60094 -s 10.252.252.0/24
+docker run --rm -it -e EASYRSA_CERT_EXPIRE=3650 -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli build-server-conf -p 60094 -s 10.252.252.0/24
 ```
 
 
