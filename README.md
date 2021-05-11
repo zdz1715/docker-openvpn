@@ -5,9 +5,9 @@
 ```shell script
 docker volume create --name openvpn
 ```
-2.初始化
+2.初始化(生成ca、服务端证书 + 服务端配置文件)
 ```shell script
-docker run --rm -it -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli init --nopass
+docker run --rm -it -e EASYRSA_CA_EXPIRE=36500 -e EASYRSA_CERT_EXPIRE=3650 -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli init --nopass
 ```
 3.运行，推荐host模式，提高网络性能
 ```shell script
@@ -15,7 +15,7 @@ docker run --cap-add=NET_ADMIN --net=host --restart always -d -v openvpn:/etc/op
 ```
 4.生成客户端
 ```shell script
- docker run --rm -it -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli build-client-conf -n user1 -r $REMOTE_IP --nopass
+ docker run --rm -it -e EASYRSA_CERT_EXPIRE=3650 -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli build-client-conf -n user1 -r $REMOTE_IP --nopass
 ```
 5.撤销客户端
 ```shell script
@@ -56,24 +56,36 @@ docker run --rm -it -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli rev
 docker run --rm -it -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli build-server-conf --set 'push \"dhcp-option DNS 8.8.8.8\"' --set 'push \"dhcp-option DNS 114.114.114.114\"'
 ```
 
-## 证书有效期
-* 修改CA证书有效期（默认：3650天）
-```shell script
-docker run -env EASYRSA_CA_EXPIRE=36500 --rm -it -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli init ...
-```
-* 修改服务端证书有效期（默认：1080天）
-```shell script
-docker run -env EASYRSA_CERT_EXPIRE=3650 --rm -it -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli build-server-conf ...
-```
 
-* 修改客户端证书有效期（默认：1080天）
-```shell script
-docker run -env EASYRSA_CERT_EXPIRE=3650 --rm -it -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli build-client-conf ...
-```
 
 ## vpn-cli
 ```shell script
- docker run --rm -it -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli --help
+ $ docker run --rm -it -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli --help
+ 
+ Usage: vpn-cli COMMAND [OPTIONS]
+
+    Options:
+      -h, --help                    帮助
+      -n, --name string             证书名称，服务端默认：vpn_server
+      -p, --port int                端口，默认：1194
+          --pair1 string            设置客户端IP
+          --pair2 string            设置客户端IP
+      -r, --remote string           设置客户端remote选项
+      -s, --server string           内网地址范围，默认：10.8.0.0/24
+          --set list                设置一行openvpn配置
+
+    Commands:
+      build-client-conf             生成客户端配置文件
+      build-server-conf             生成服务端配置文件
+      check                         检查能否正常运行
+      init                          初始化，生成证书和服务端配置文件
+      ip                            设置客户端ip
+      list                          证书列表
+      list-ip                       ip列表
+      renew                         证书续期
+      revoke                        撤销证书
+      status                        客户端连接状态
+
 ```
 
 ## 客户端ip
