@@ -5,7 +5,7 @@
 ```shell script
 docker volume create --name openvpn
 ```
-2.初始化(生成ca、服务端证书 + 服务端配置文件)
+2.初始化(生成ca、服务端证书 10年有效期 + 服务端配置文件)
 ```shell script
 docker run --rm -it -e EASYRSA_CA_EXPIRE=36500 -e EASYRSA_CERT_EXPIRE=3650 -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli init --nopass
 ```
