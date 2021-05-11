@@ -52,14 +52,14 @@ docker run --rm -it -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli rev
 再不更改根证书的情况下，可以生成新的服务端证书和配置,若证书名称不传或者和以前一样则不会重新生成证书
 
 ```shell script
- docker run --rm -it -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli build-server-conf -n $NAME -s $SERVER -p $PORT --set $line1 --set $line2
+ docker run --rm -it -e EASYRSA_CERT_EXPIRE=3650 -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli build-server-conf -n $NAME -s $SERVER -p $PORT --set $line1 --set $line2
 ```
 
 * 例子
 
 ```shell script
 # 服务端
-docker run --rm -it -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli build-server-conf --set 'push \"dhcp-option DNS 8.8.8.8\"' --set 'push \"dhcp-option DNS 114.114.114.114\"'
+docker run --rm -it -v -e EASYRSA_CERT_EXPIRE=3650 openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli build-server-conf -p 60094 -s 10.252.252.0/24
 ```
 
 
