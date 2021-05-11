@@ -13,7 +13,7 @@ docker run --rm -it -e EASYRSA_CA_EXPIRE=36500 -e EASYRSA_CERT_EXPIRE=3650 -v op
 ```shell script
 docker run --cap-add=NET_ADMIN --net=host --restart always -d -v openvpn:/etc/openvpn zdzserver/docker-openvpn
 ```
-4.生成客户端
+4.生成客户端（证书10年有效期）
 ```shell script
  docker run --rm -it -e EASYRSA_CERT_EXPIRE=3650 -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli build-client-conf -n user1 -r $REMOTE_IP --nopass
 ```
