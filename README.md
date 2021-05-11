@@ -39,8 +39,14 @@ docker run --rm -it -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli rev
 ## 定制服务端配置
 * 初始化
 ```shell script
- docker run --rm -it -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli init --nopass -n $NAME -s $SERVER -p $PORT --set $line1 --set $line2 
+ docker run --rm -it -e EASYRSA_CA_EXPIRE=36500 -e EASYRSA_CERT_EXPIRE=3650 -v openvpn:/etc/openvpn zdzserver/docker-openvpn vpn-cli init --nopass -n $NAME -s $SERVER -p $PORT --set $line1 --set $line2 
 ```
+> `-n`：证书名称，默认：vpn_server
+> `-s`: 网段，默认 10.8.0.0/24
+> `-p`: 端口，默认 1194
+> `--nopass`: 不设置密码
+> `--set`: 追加一行配置
+
 * 初始化之后
 
 再不更改根证书的情况下，可以生成新的服务端证书和配置,若证书名称不传或者和以前一样则不会重新生成证书
